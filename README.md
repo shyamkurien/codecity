@@ -1,4 +1,4 @@
-# CodeCity
+# CodeCity 
 
 ![CodeCity Screenshot](docs/img/codecity.png)
 
