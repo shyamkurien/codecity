@@ -1,0 +1,85 @@
+"""BUILD file for CodeCity backend (TypeScript / Fastify)."""
+
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+# The backend is built by shelling out to npm through a genrule, mirroring
+# how the frontend is built. No hermetic Node toolchain is used.
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "sources",
+    srcs = glob([
+        "src/**/*.ts",
+    ]) + [
+        "package.json",
+        "package-lock.json",
+        "tsconfig.json",
+        "tsconfig.build.json",
+    ],
+)
+
+genrule(
+    name = "build",
+    srcs = [
+        ":sources",
+        "package.json",
+    ],
+    outs = ["backend_bundle.tar"],
+    cmd = """
+        set -e
+        BUILD_DIR=$$(mktemp -d)
+        BACKEND_DIR=$$(dirname $(location package.json))
+        cp -R $$BACKEND_DIR/* $$BUILD_DIR/
+
+        cd $$BUILD_DIR
+        npm ci --silent
+        npm run build --silent
+        npm prune --omit=dev --silent
+
+        cd -
+        tar -cf $@ -C $$BUILD_DIR dist node_modules package.json
+    """,
+    local = True,
+    message = "Building backend with TypeScript",
+)
+
+pkg_tar(
+    name = "backend_layer",
+    deps = [":build"],
+    package_dir = "/app",
+)
+
+# OCI image for the backend. Base is node:22-bookworm because it ships with
+# git preinstalled — the backend shells out to `git` for repo cloning and log
+# streaming. Switching to a slim base would require adding a git layer.
+oci_image(
+    name = "image",
+    base = "@node_bookworm_linux_amd64",
+    entrypoint = [
+        "node",
+        "/app/dist/server.js",
+    ],
+    workdir = "/app",
+    exposed_ports = ["3001/tcp"],
+    env = {
+        "NODE_ENV": "production",
+        "HOST": "0.0.0.0",
+        "PORT": "3001",
+    },
+    tars = [":backend_layer"],
+)
+
+oci_load(
+    name = "image_tarball",
+    image = ":image",
+    repo_tags = ["codecity-backend:latest"],
+)
+
+oci_push(
+    name = "push",
+    image = ":image",
+    remote_tags = ["latest"],
+    repository = "codecity-backend",
+)

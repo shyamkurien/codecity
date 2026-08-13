@@ -1,0 +1,418 @@
+# CodeCity
+
+![CodeCity Screenshot](docs/img/codecity.png)
+
+A 3D visualization tool that renders git repositories as buildings in a city. Each building's characteristics represent different aspects of the repository:
+
+- **Height** = Repository/directory age (days since first commit)
+- **Volume** = Lines of code
+- **Color** = Primary programming language
+
+## Features
+
+- Visualize local git repositories or GitHub repositories
+- Toggle between repository view and directory drill-down view
+- Scan entire directories for all git repositories
+- Interactive 3D navigation with orbit controls
+- Hover tooltips showing repository statistics
+- City blocks view showing all repositories with their directories
+
+## Credits
+This codebase was initially forked from https://github.com/grahambrooks/codecity.org and the backend migrated from rust to a Typescript / Fastify backend
+
+
+## Quick Start with Docker
+
+The easiest way to run CodeCity is using Docker Compose:
+
+```bash
+# Clone the repository
+git clone https://github.com/shyamkurien/codecity.git
+cd codecity
+
+# Build and start the containers
+docker compose up --build
+
+# Access the application
+open http://localhost:3000
+```
+
+### Docker Notes
+
+When running in Docker, local repository paths must be prefixed with `/host/` since the host filesystem is mounted at that location. For example:
+- Host path: `/Users/me/projects`
+- Container path: `/host/Users/me/projects`
+
+## Development Container
+
+For a consistent development experience, use the included devcontainer with VS Code or GitHub Codespaces.
+
+### VS Code Dev Containers
+
+1. Install the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+2. Open the project in VS Code
+3. Click "Reopen in Container" when prompted (or use Command Palette: "Dev Containers: Reopen in Container")
+
+### GitHub Codespaces
+
+Click the "Code" button on GitHub and select "Open with Codespaces" to launch a cloud-based development environment.
+
+### What's Included
+
+The devcontainer provides:
+- **Node.js 22** for backend and frontend development
+- **Bazel 8.5** via Bazelisk for builds
+- **Docker-in-Docker** for container builds
+- **kubectl** for Kubernetes deployment
+- Pre-configured VS Code extensions for JavaScript/TypeScript, Docker, and Kubernetes
+
+### Quick Commands in Devcontainer
+
+```bash
+# Backend development
+cd backend && npm run dev
+
+# Frontend development
+cd frontend && npm run dev
+
+# Build everything with Bazel
+bazel build //...
+
+# Deploy to Kubernetes
+bazel run //k8s:deploy_all
+```
+
+## Bazel Build
+
+CodeCity uses Bazel for reproducible builds and Kubernetes deployment.
+
+### Prerequisites
+
+- [Bazel](https://bazel.build/) 7.4+ (or [Bazelisk](https://github.com/bazelbuild/bazelisk) recommended)
+- Docker (for container image builds)
+- kubectl (for Kubernetes deployment)
+
+### Build Commands
+
+```bash
+# Build everything
+bazel build //...
+
+# Build specific targets
+bazel build //backend:build               # TypeScript backend bundle
+bazel build //frontend:build              # Frontend static assets
+
+# Build container images
+bazel build //backend:image_tarball       # Backend Docker image
+bazel build //frontend:image_tarball      # Frontend Docker image
+```
+
+### Container Images
+
+Build and load container images into Docker:
+
+```bash
+# Build and load images into Docker (using oci_load)
+bazel run //backend:image_tarball
+bazel run //frontend:image_tarball
+
+# Verify images are loaded
+docker images | grep codecity
+```
+
+### Kubernetes Deployment with Bazel
+
+Deploy to a local Kubernetes cluster (minikube, kind, or docker-desktop):
+
+```bash
+# Full deployment (build images, load to cluster, deploy)
+bazel run //k8s:deploy_all
+
+# Or step by step:
+bazel run //backend:image_tarball   # Load backend image to Docker
+bazel run //frontend:image_tarball  # Load frontend image to Docker
+bazel run //k8s:deploy              # Apply K8s manifests
+
+# Check status
+bazel run //k8s:status
+
+# Access the application
+bazel run //k8s:port_forward
+# Then open http://localhost:3000
+
+# Tear down
+bazel run //k8s:teardown
+```
+
+### Available Bazel Targets
+
+| Target | Description |
+|--------|-------------|
+| `//backend:build` | TypeScript backend bundle (tarball) |
+| `//backend:image` | Backend OCI image |
+| `//backend:image_tarball` | Load backend image into Docker |
+| `//frontend:build` | Frontend Vite build output |
+| `//frontend:image` | Frontend OCI image |
+| `//frontend:image_tarball` | Load frontend image into Docker |
+| `//k8s:deploy_all` | Build, load images, and deploy to K8s |
+| `//k8s:deploy` | Deploy manifests to K8s |
+| `//k8s:teardown` | Remove deployment from K8s |
+| `//k8s:status` | Show K8s deployment status |
+| `//k8s:port_forward` | Start port-forwarding to services |
+
+### Build Configurations
+
+```bash
+# Build the backend bundle
+bazel build //backend:build
+
+# Build for Linux containers (on macOS)
+bazel build --config=linux //backend:image
+```
+
+## Kubernetes Deployment
+
+Deploy CodeCity to a Kubernetes cluster using the provided manifests.
+
+### Prerequisites
+
+- Kubernetes cluster (minikube, kind, or cloud provider)
+- kubectl configured to access your cluster
+- Container images built and available (see [Building Images](#building-images))
+
+### Building Images
+
+Build and tag the container images:
+
+```bash
+# Build backend image
+docker build -t codecity-backend:latest ./backend
+
+# Build frontend image
+docker build -t codecity-frontend:latest ./frontend
+
+# For minikube, load images into the cluster
+minikube image load codecity-backend:latest
+minikube image load codecity-frontend:latest
+
+# For kind, load images into the cluster
+kind load docker-image codecity-backend:latest
+kind load docker-image codecity-frontend:latest
+```
+
+### Deploy with kubectl
+
+```bash
+# Apply all manifests
+kubectl apply -k k8s/
+
+# Check deployment status
+kubectl get pods -n codecity
+
+# Wait for pods to be ready
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=codecity -n codecity --timeout=120s
+```
+
+### Access the Application
+
+**Option 1: Port Forward (development)**
+```bash
+kubectl port-forward -n codecity svc/frontend 3000:80
+# Access at http://localhost:3000
+```
+
+**Option 2: Ingress (production)**
+
+The included ingress is configured for `codecity.local`. Update the host in `k8s/ingress.yaml` for your domain, then:
+
+```bash
+# Add to /etc/hosts for local testing
+echo "127.0.0.1 codecity.local" | sudo tee -a /etc/hosts
+
+# Or use your ingress controller's external IP
+```
+
+### Kubernetes Notes
+
+- The manifests deploy to the `codecity` namespace
+- Images default to `latest` tag - update `k8s/kustomization.yaml` for specific versions
+- Local repository analysis requires mounting the host filesystem (commented out in `backend-deployment.yaml`)
+- For cloud deployments, GitHub repository analysis works without additional configuration
+
+### Customization
+
+Use Kustomize overlays to customize for different environments:
+
+```bash
+# Preview generated manifests
+kubectl kustomize k8s/
+
+# Apply with custom image tags
+cd k8s && kustomize edit set image codecity-backend=myregistry/codecity-backend:v1.0.0
+kubectl apply -k k8s/
+```
+
+## Manual Build
+
+### Prerequisites
+
+- **Backend**: Node.js 22+ with npm
+- **Frontend**: Node.js 22+ with npm
+- **System**: `git` on `$PATH` (the backend shells out to it for clone / log operations)
+
+### Backend
+
+```bash
+cd backend
+
+# Install pinned dependencies
+npm ci
+
+# Dev with live reload (tsx watch)
+npm run dev
+
+# Or: compile and run
+npm run build
+npm start
+```
+
+The backend server starts on `http://localhost:3001`.
+
+### Frontend
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Development server (with hot reload)
+npm run dev
+
+# Production build
+npm run build
+```
+
+The development server starts on `http://localhost:3000` and proxies API requests to the backend.
+
+## Usage
+
+### Analyze a Single Repository
+
+1. **Local Repository**: Enter the full path to a git repository and click "Analyze Local Repo"
+2. **GitHub Repository**: Enter `owner/repo` format (e.g., `rust-lang/rust`) and click "Analyze GitHub Repo"
+
+### Scan Multiple Repositories
+
+1. Enter a directory path containing multiple git repositories
+2. Click "Scan All Subdirectories"
+3. All discovered repositories will be analyzed and added to the visualization
+
+### Navigation
+
+- **Left-click + drag**: Rotate the camera
+- **Right-click + drag**: Pan the camera
+- **Scroll**: Zoom in/out
+- **Hover**: Show repository/directory details
+- **Click** (in repo view): Switch to directory view for that repository
+
+### Views
+
+- **Repositories**: Each building represents one git repository
+- **City Blocks**: Each block represents a repository, with buildings for each directory inside
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/repos` | List all analyzed repositories |
+| POST | `/api/analyze/local` | Analyze a local repository |
+| POST | `/api/analyze/github` | Analyze a GitHub repository |
+| POST | `/api/scan` | Scan directory for repositories |
+| GET | `/api/repo/{id}` | Get repository details |
+| GET | `/api/repo/{id}/tree` | Get repository directory tree |
+
+## Project Structure
+
+```
+codecity/
+├── MODULE.bazel             # Bazel module definition
+├── BUILD.bazel              # Root build file
+├── .bazelrc                 # Bazel configuration
+├── .bazelversion            # Bazel version pinning
+├── backend/                 # TypeScript / Fastify API server
+│   ├── BUILD.bazel          # Backend build rules (Bazel)
+│   ├── package.json         # npm manifest
+│   ├── tsconfig.json        # TypeScript config
+│   ├── Dockerfile           # Multi-stage Node 22 image
+│   └── src/
+│       ├── server.ts        # Fastify bootstrap + CORS + error handler
+│       ├── types.ts         # RepoAnalysis / DirectoryNode / LanguageBreakdown
+│       ├── store.ts         # In-memory repo store (Map)
+│       ├── routes/          # One file per endpoint
+│       ├── analysis/        # walk, line count, git CLI, directory tree
+│       └── github/          # GitHub API + shallow clone
+├── frontend/                # Three.js visualization
+│   ├── BUILD.bazel          # Frontend build rules
+│   ├── package.json
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   ├── vite.config.js
+│   ├── index.html
+│   └── src/
+│       ├── main.js          # Application entry
+│       ├── scene.js         # Three.js 3D scene
+│       ├── buildings.js     # Building geometry
+│       ├── api.js           # API client
+│       ├── ui.js            # UI controls
+│       └── colors.js        # Language colors
+├── k8s/                     # Kubernetes manifests
+│   ├── BUILD.bazel          # K8s deployment rules
+│   ├── kustomization.yaml   # Kustomize configuration
+│   ├── namespace.yaml
+│   ├── backend-deployment.yaml
+│   ├── backend-service.yaml
+│   ├── frontend-deployment.yaml
+│   ├── frontend-service.yaml
+│   └── ingress.yaml
+├── scripts/
+│   └── deploy-k8s.sh        # Full K8s deployment script
+├── docker-compose.yml
+└── README.md
+```
+
+## Language Colors
+
+The visualization uses GitHub's language colors:
+
+| Language | Color |
+|----------|-------|
+| Rust | #DEA584 |
+| JavaScript | #F7DF1E |
+| TypeScript | #3178C6 |
+| Python | #3776AB |
+| Go | #00ADD8 |
+| Java | #B07219 |
+| C++ | #F34B7D |
+| Ruby | #CC342D |
+
+...and 20+ more languages.
+
+## Technology Stack
+
+### Backend
+- **TypeScript** on **Node.js 22** (ESM)
+- **Fastify 5** web framework
+- **git** CLI (shelled out via `execFile` / `spawn`) for repo operations
+- **@octokit/rest** for GitHub API
+- **p-limit** for bounded concurrency during `/api/scan`
+
+### Frontend
+- **Three.js** for 3D rendering
+- **Vite** for development/build
+- Vanilla JavaScript (no framework)
+
+## License
+
+MIT

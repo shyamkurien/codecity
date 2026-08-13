@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+target/
+.git/
+.gitignore
+*.md
+.env
+.env.*
+Cargo.toml
+Cargo.lock
